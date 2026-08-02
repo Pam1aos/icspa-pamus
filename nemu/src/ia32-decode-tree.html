@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>IA-32 指令解码决策树</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    background: #1a1a2e; color: #e0e0e0; font-family: 'Consolas','Courier New',monospace;
+    padding: 20px; line-height: 1.6;
+}
+h1 { text-align: center; color: #ffd700; margin-bottom: 10px; font-size: 22px; }
+.subtitle { text-align: center; color: #888; margin-bottom: 30px; font-size: 13px; }
+.tree { margin: 0 auto; max-width: 1400px; }
+
+/* 弹性树节点 */
+.node { position: relative; margin: 4px 0; }
+.node-content {
+    display: inline-block; padding: 6px 12px; border-radius: 5px;
+    cursor: pointer; font-size: 13px; transition: all 0.2s;
+}
+.node-content:hover { filter: brightness(1.3); transform: scale(1.02); }
+
+.children { margin-left: 32px; border-left: 2px solid #444; padding-left: 16px; display: none; }
+.node.open > .children { display: block; }
+
+.arrow { color: #666; margin-right: 6px; user-select: none; font-size: 12px; }
+
+/* 颜色分类 */
+.l1 { background: #c0392b; color:#fff; }  /* 第1层: 取opcode */
+.l2 { background: #d35400; color:#fff; }  /* 第2层: opcode分类 */
+.l3 { background: #2471a3; color:#fff; }  /* 第3层: ModR/M解析 */
+.l4 { background: #1e8449; color:#fff; }  /* 第4层: 具体指令 */
+.l5 { background: #7d3c98; color:#fff; }  /* 第5层: 操作数组合 */
+.l6 { background: #2c3e50; color:#ffd700; } /* 机器码示例 */
+.l7 { background: #5d6d7e; color:#fff; }   /* 叶子 */
+.l8 { background: #6c3483; color:#fff; }   /* Group */
+
+.tag { font-size: 10px; background: rgba(0,0,0,0.3); padding: 1px 5px; border-radius: 3px; margin-left: 6px; }
+.byte { color: #f1c40f; font-weight: bold; }
+.len { color: #aaa; font-size: 11px; margin-left: 4px; }
+.detail { color: #bbb; font-size: 12px; }
+
+/* 两字节表格 */
+.optable { border-collapse: collapse; margin: 8px 0; font-size: 11px; width: 100%; max-width: 1100px; }
+.optable td { border: 1px solid #444; padding: 3px 6px; text-align: center; }
+.optable .hdr { background: #333; color: #ffd700; font-weight: bold; }
+.optable .used { background: #1a3a1a; color: #90ee90; }
+.optable .empty { background: #2a2a2a; color: #555; }
+.optable .grp { background: #1a1a3a; color: #87ceeb; }
+
+summary { cursor: pointer; padding: 4px 0; color: #ffd700; font-size: 14px; }
+summary:hover { color: #fff; }
+</style>
+</head>
+<body>
+
+<h1>IA-32 指令解码决策树</h1>
+<p class="subtitle">逐字节解析流程 — 从机器码到汇编指令</p>
+
+<!-- ================================================ -->
+<!-- 逐字节解析实例 -->
+<!-- ================================================ -->
+<div style="max-width:1400px; margin:0 auto 40px;">
+<h2 style="color:#ffd700; margin-bottom:20px; border-bottom:1px solid #444; padding-bottom:8px;">
+    &#x1F50D; 逐字节解析实例（六大分支各选一条）
+</h2>
+
+<!-- 例1: ADD EAX, EBX (双操作数, mod=11) -->
+<div style="background:#222; border:1px solid #555; border-radius:8px; padding:18px; margin:14px 0;">
+<h3 style="color:#e74c3c; margin-bottom:8px;">例1: 双操作数, 两个寄存器 (mod=11)</h3>
+<p style="color:#f1c40f; font-size:18px; font-family:monospace;">
+    <b>机器码: <span style="background:#c0392b;padding:2px 8px;border-radius:3px;">03</span>
+    <span style="background:#2471a3;padding:2px 8px;border-radius:3px;">C3</span></b>
+    &rarr; AT&amp;T: <b style="color:#2ecc71;">addl %eax, %ebx</b>
+</p>
+<div style="display:grid; grid-template-columns:80px 1fr; gap:6px 12px; margin-top:12px; font-size:13px;">
+    <div style="color:#888;">字节0</div>
+    <div><span class="byte">03</span> = opcode &rarr; opcode_entry[0x03] = <b>add_rm2r_v</b>
+        <span style="color:#888;">(Intel: ADD Gv,Ev &rarr; AT&amp;T: addl src, %reg)</span></div>
+
+    <div style="color:#888;">字节1</div>
+    <div><span class="byte">C3</span> = ModR/M = <b>11 000 011</b>
+        <br>&emsp; mod=<span style="color:#e74c3c;">11</span> &rarr; case_mod_11: 两个操作数都是寄存器
+        <br>&emsp; reg=<span style="color:#2ecc71;">000</span> &rarr; opr_dest = REG_EAX (目标寄存器)
+        <br>&emsp; r/m=<span style="color:#3498db;">011</span> &rarr; opr_src  = REG_EBX (源操作数)</div>
+
+    <div style="color:#888;">长度</div>
+    <div>len = 1(opcode) + 1(ModR/M) = <b>2 字节</b></div>
+
+    <div style="color:#888;">执行</div>
+    <div>operand_read(EBX) &rarr; opr_src.val = cpu.ebx
+        <br>alu_add(opr_src.val, opr_dest.val, 32) &rarr; cpu.ebx += cpu.eax, 设标志位
+        <br>operand_write(EAX) &rarr; cpu.eax 更新
+        <br>cpu.eip += 2</div>
+</div>
+</div>
+
+<!-- 例2: MOV [EBX+EAX*4+0x1100], EDX (复杂内存寻址) -->
+<div style="background:#222; border:1px solid #555; border-radius:8px; padding:18px; margin:14px 0;">
+<h3 style="color:#e74c3c; margin-bottom:8px;">例2: 双操作数, 内存+寄存器 (mod=10, SIB, disp32)</h3>
+<p style="color:#f1c40f; font-size:18px; font-family:monospace;">
+    <b>机器码: <span style="background:#c0392b;padding:2px 8px;border-radius:3px;">89</span>
+    <span style="background:#2471a3;padding:2px 8px;border-radius:3px;">94</span>
+    <span style="background:#1e8449;padding:2px 8px;border-radius:3px;">83</span>
+    <span style="background:#7d3c98;padding:2px 8px;border-radius:3px;">00 11 00 00</span></b>
+    &rarr; AT&amp;T: <b style="color:#2ecc71;">movl %edx, 0x1100(%ebx,%eax,4)</b>
+</p>
+<div style="display:grid; grid-template-columns:80px 1fr; gap:6px 12px; margin-top:12px; font-size:13px;">
+    <div style="color:#888;">字节0</div>
+    <div><span class="byte">89</span> = opcode &rarr; opcode_entry[0x89] = <b>mov_r2rm_v</b>
+        <span style="color:#888;">(Intel: MOV Ev,Gv &rarr; AT&amp;T: movl %reg, %rm)</span></div>
+
+    <div style="color:#888;">字节1</div>
+    <div><span class="byte">94</span> = ModR/M = <b>10 010 100</b>
+        <br>&emsp; mod=<span style="color:#e74c3c;">10</span> &rarr; case_mod_10: 内存, +disp32
+        <br>&emsp; reg=<span style="color:#2ecc71;">010</span> &rarr; opr_src = REG_EDX (源=寄存器)
+        <br>&emsp; r/m=<span style="color:#e67e22;">4</span> &rarr; 触发 SIB 解析！</div>
+
+    <div style="color:#888;">字节2</div>
+    <div><span class="byte">83</span> = SIB = <b>10 000 011</b>
+        <br>&emsp; ss=<span style="color:#e74c3c;">10</span> &rarr; scale = <b>×4</b>
+        <br>&emsp; index=<span style="color:#2ecc71;">000</span> &rarr; idx = cpu.eax <b>× 4</b>
+        <br>&emsp; base=<span style="color:#3498db;">011</span> &rarr; opr_dest.base = REG_EBX</div>
+
+    <div style="color:#888;">字节3~6</div>
+    <div><span class="byte">00 11 00 00</span> = disp32 (小端) = <b>0x00001100</b>
+        <br>opr_dest.addr = cpu.ebx + cpu.eax×4 + <b>0x1100</b>
+        <br>opr_dest.sreg = SREG_DS (rm=EBX, 非 EBP)
+        <br>opr_dest.type = OPR_MEM</div>
+
+    <div style="color:#888;">长度</div>
+    <div>len = 1 + 1(ModR/M) + 1(SIB) + 4(disp32) = <b>7 字节</b></div>
+
+    <div style="color:#888;">执行</div>
+    <div>operand_read(EDX) &rarr; 读 EDX 的值
+        <br>operand_write(内存[EBX+EAX×4+0x1100]) &rarr; 写入内存
+        <br>cpu.eip += 7</div>
+</div>
+</div>
+
+<!-- 例3: PUSH EAX (单字节) -->
+<div style="background:#222; border:1px solid #555; border-radius:8px; padding:18px; margin:14px 0;">
+<h3 style="color:#e74c3c; margin-bottom:8px;">例3: 单字节, 无 ModR/M (寄存器编码在 opcode 里)</h3>
+<p style="color:#f1c40f; font-size:18px; font-family:monospace;">
+    <b>机器码: <span style="background:#c0392b;padding:2px 8px;border-radius:3px;">50</span></b>
+    &rarr; AT&amp;T: <b style="color:#2ecc71;">pushl %eax</b>
+</p>
+<div style="display:grid; grid-template-columns:80px 1fr; gap:6px 12px; margin-top:12px; font-size:13px;">
+    <div style="color:#888;">字节0</div>
+    <div><span class="byte">50</span> = opcode &rarr; opcode_entry[0x50] = <b>push_r_v</b>
+        <br>reg = opcode &amp; 7 = <b>0</b> = REG_EAX
+        <br>decode_operand_r: opr_src = {OPR_REG, addr=EAX}
+        <br><span style="color:#888;">无 ModR/M！寄存器号直接嵌在 opcode 低 3 位里</span></div>
+
+    <div style="color:#888;">长度</div>
+    <div>len = <b>1 字节</b></div>
+
+    <div style="color:#888;">执行</div>
+    <div>operand_read(EAX) &rarr; val = cpu.eax
+        <br>cpu.esp -= 4
+        <br>vaddr_write(cpu.esp, SREG_SS, 4, cpu.eax)
+        <br>cpu.eip += 1</div>
+</div>
+</div>
+
+<!-- 例4: CALL rel32 (无ModR/M, 有偏移) -->
+<div style="background:#222; border:1px solid #555; border-radius:8px; padding:18px; margin:14px 0;">
+<h3 style="color:#e74c3c; margin-bottom:8px;">例4: 无 ModR/M, 有 4 字节偏移 (直接 CALL)</h3>
+<p style="color:#f1c40f; font-size:18px; font-family:monospace;">
+    <b>机器码: <span style="background:#c0392b;padding:2px 8px;border-radius:3px;">E8</span>
+    <span style="background:#7d3c98;padding:2px 8px;border-radius:3px;">00 01 00 00</span></b>
+    &rarr; AT&amp;T: <b style="color:#2ecc71;">call 0x30105</b> <span style="color:#888;">(假设 eip=0x30000)</span>
+</p>
+<div style="display:grid; grid-template-columns:80px 1fr; gap:6px 12px; margin-top:12px; font-size:13px;">
+    <div style="color:#888;">字节0</div>
+    <div><span class="byte">E8</span> = opcode &rarr; opcode_entry[0xE8] = <b>call_rel32</b>
+        <br>指令长度固定 = <b>5 字节</b> (opcode + 4B偏移)
+        <br><span style="color:#888;">无 ModR/M, 无 SIB — 操作数全是隐式的</span></div>
+
+    <div style="color:#888;">字节1~4</div>
+    <div><span class="byte">00 01 00 00</span> = rel32 (小端) = <b>0x00000100</b> = +256
+        <br>是有符号数: 正数 = 往前跳, 负数 = 往后跳</div>
+
+    <div style="color:#888;">执行</div>
+    <div>rel32 = instr_fetch(eip+1, 4) = 0x100
+        <br>len = 5
+        <br>① cpu.esp -= 4
+        <br>② vaddr_write(cpu.esp, SS, 4, <b style="color:#f1c40f;">eip+5</b>=0x30005) &larr; 存返回地址
+        <br>③ cpu.eip += 0x100 = <b style="color:#2ecc71;">0x30100</b> &larr; 跳转目标
+        <br><span style="color:#888;">注意: 返回地址是 eip+5 (下一条指令), 不是 eip 本身</span></div>
+</div>
+</div>
+
+<!-- 例5: CMOVE (两字节opcode) -->
+<div style="background:#222; border:1px solid #555; border-radius:8px; padding:18px; margin:14px 0;">
+<h3 style="color:#e74c3c; margin-bottom:8px;">例5: 两字节 opcode (0x0F)</h3>
+<p style="color:#f1c40f; font-size:18px; font-family:monospace;">
+    <b>机器码: <span style="background:#c0392b;padding:2px 8px;border-radius:3px;">0F</span>
+    <span style="background:#2471a3;padding:2px 8px;border-radius:3px;">44</span>
+    <span style="background:#1e8449;padding:2px 8px;border-radius:3px;">C1</span></b>
+    &rarr; AT&amp;T: <b style="color:#2ecc71;">cmove %ecx, %eax</b>
+</p>
+<div style="display:grid; grid-template-columns:80px 1fr; gap:6px 12px; margin-top:12px; font-size:13px;">
+    <div style="color:#888;">字节0</div>
+    <div><span class="byte">0F</span> = 两字节 opcode 前缀 &rarr; opcode_entry[0x0F] = <b>opcode_2_byte()</b>
+        <br>读第 2 字节 op2 = instr_fetch(eip+1, 1) = <b style="color:#2471a3;">0x44</b></div>
+
+    <div style="color:#888;">字节1</div>
+    <div><span class="byte">44</span> = op2 &rarr; opcode_2_byte_entry[0x44] = <b>cmove_rm2r_v</b>
+        <br>条件码: condition_e (ZF=1 则执行传送)</div>
+
+    <div style="color:#888;">字节2</div>
+    <div><span class="byte">C1</span> = ModR/M = <b>11 000 001</b>
+        <br>&emsp; mod=<span style="color:#e74c3c;">11</span> &rarr; 纯寄存器
+        <br>&emsp; reg=<span style="color:#2ecc71;">000</span> &rarr; opr_dest = REG_EAX (条件成立时写入)
+        <br>&emsp; r/m=<span style="color:#3498db;">001</span> &rarr; opr_src  = REG_ECX (来源)</div>
+
+    <div style="color:#888;">长度</div>
+    <div>len = 1(前缀0F) + 1(op2) + 1(ModR/M) = <b>3 字节</b></div>
+
+    <div style="color:#888;">执行</div>
+    <div>if (cpu.eflags.ZF == 1): operand_read(ECX) &rarr; EAX = ECX
+        <br>else: 什么也不做
+        <br>cpu.eip += 3</div>
+</div>
+</div>
+
+<!-- 例6: ADD [EAX], imm8 (Group 指令) -->
+<div style="background:#222; border:1px solid #555; border-radius:8px; padding:18px; margin:14px 0;">
+<h3 style="color:#e74c3c; margin-bottom:8px;">例6: Group 指令 (需读 ModR/M.reg 决定子操作)</h3>
+<p style="color:#f1c40f; font-size:18px; font-family:monospace;">
+    <b>机器码: <span style="background:#c0392b;padding:2px 8px;border-radius:3px;">83</span>
+    <span style="background:#2471a3;padding:2px 8px;border-radius:3px;">00</span>
+    <span style="background:#7d3c98;padding:2px 8px;border-radius:3px;">05</span></b>
+    &rarr; AT&amp;T: <b style="color:#2ecc71;">addl $5, (%eax)</b>
+</p>
+<div style="display:grid; grid-template-columns:80px 1fr; gap:6px 12px; margin-top:12px; font-size:13px;">
+    <div style="color:#888;">字节0</div>
+    <div><span class="byte">83</span> = opcode &rarr; opcode_entry[0x83] = <b>group_1_bv()</b>
+        <br>需要再读 ModR/M &rarr; reg 字段决定是 ADD/OR/ADC/...</div>
+
+    <div style="color:#888;">字节1</div>
+    <div><span class="byte">00</span> = ModR/M = <b>00 000 000</b>
+        <br>&emsp; mod=<span style="color:#e74c3c;">00</span> &rarr; case_mod_00: 内存 [EAX]
+        <br>&emsp; reg=<span style="color:#e67e22;">000</span> &rarr; <b>子操作码 = 0 = ADD</b>
+        <br>&emsp; &emsp; &rarr; group_1_bv_entry[0] = <b>add_i2rm_bv</b>
+        <br>&emsp; r/m=<span style="color:#3498db;">000</span> &rarr; opr_dest = [EAX] (mod=00, rm=0)</div>
+
+    <div style="color:#888;">字节2</div>
+    <div><span class="byte">05</span> = imm8 = <b>5</b>
+        <br>有符号扩展: sign_ext(5, 8) = 5 (正数不变)
+        <br>opr_src = {OPR_IMM, val=5}</div>
+
+    <div style="color:#888;">长度</div>
+    <div>len = 1(opcode) + 1(ModR/M) + 1(imm8) = <b>3 字节</b></div>
+
+    <div style="color:#888;">执行</div>
+    <div>operand_read([EAX]) &rarr; 从内存 [cpu.eax] 读值
+        <br>alu_add(5, 旧值, 32) &rarr; 加法, 设标志位
+        <br>operand_write([EAX]) &rarr; 写回内存
+        <br>cpu.eip += 3</div>
+</div>
+</div>
+
+</div>
+
+<div class="tree">
+
+<!-- ====== 根节点 ====== -->
+<div class="node open" id="root">
+<div class="node-content l1" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    第 1 字节: opcode = instr_fetch(eip, 1)
+    <span class="tag">256 个入口</span>
+    <span class="detail">所有指令解码的起点</span>
+</div>
+<div class="children">
+
+<!-- ====== 0x00~0x3F: 算术逻辑双操作数指令 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x00~0x3F — 双操作数算术/逻辑指令 (ADD/OR/ADC/SBB/AND/SUB/XOR/CMP)
+    <span class="tag">64 个 opcode</span>
+    <span class="detail">每条指令占 3 个 opcode: r2rm_b, r2rm_v, rm2r_b, rm2r_v + i2a_b + i2a_v</span>
+</div>
+<div class="children">
+
+    <!-- 以 ADD 为例 -->
+    <div class="node open">
+    <div class="node-content l3" onclick="toggle(this.parentNode)">
+        <span class="arrow">▼</span> ADD 系列 (<b>0x00~0x05</b>)
+    </div>
+    <div class="children">
+        <div class="node"><div class="node-content l4">0x00: ADD Eb,Gb → <b>add_r2rm_b</b> <span class="len">[2B]</span><br><span class="detail">读 ModR/M → reg=src(reg), rm=dest(r/m,mod); instr_execute: alu_add(src,dest,8)</span></div></div>
+        <div class="node"><div class="node-content l4">0x01: ADD Ev,Gv → <b>add_r2rm_v</b> <span class="len">[2~7B]</span><br><span class="detail">同上, data_size=32/16; rm 可能是 SIB+disp32</span></div></div>
+        <div class="node"><div class="node-content l4">0x02: ADD Gb,Eb → <b>add_rm2r_b</b> <span class="len">[2B]</span><br><span class="detail">读 ModR/M → reg=dest(reg), rm=src(r/m); instr_execute: alu_add(src,dest,8)</span></div></div>
+        <div class="node"><div class="node-content l4">0x03: ADD Gv,Ev → <b>add_rm2r_v</b> <span class="len">[2~7B]</span></div></div>
+        <div class="node"><div class="node-content l4">0x04: ADD AL,Ib → <b>add_i2a_b</b> <span class="len">[2B]</span><br><span class="detail">无 ModR/M！dest 固定 AL, src = 1B 立即数</span></div></div>
+        <div class="node"><div class="node-content l4">0x05: ADD EAX,Iv → <b>add_i2a_v</b> <span class="len">[5B]</span><br><span class="detail">dest 固定 EAX, src = 4B 立即数</span></div></div>
+    </div>
+    </div>
+
+    <div class="node"><div class="node-content l5">0x08~0D: OR (结构相同) ─ 0x10~15: ADC ─ 0x18~1D: SBB ─ 0x20~25: AND ─ 0x28~2D: SUB ─ 0x30~35: XOR ─ 0x38~3D: CMP</div></div>
+
+</div>
+</div>
+
+<!-- ====== 0x40~0x5F: INC/DEC/PUSH/POP r32 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x40~0x5F — 单字节寄存器指令 (INC/DEC/PUSH/POP r32)
+    <span class="tag">32 个 opcode</span>
+    <span class="detail">无 ModR/M！寄存器号 = opcode & 7</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0x40~47: <b>inc_r_v</b> <span class="len">[1B]</span> — reg = opcode&7 → 读 reg → +1 → 写回, 保留 CF</div></div>
+    <div class="node"><div class="node-content l3">0x48~4F: <b>dec_r_v</b> <span class="len">[1B]</span> — 同上, -1</div></div>
+    <div class="node"><div class="node-content l3">0x50~57: <b>push_r_v</b> <span class="len">[1B]</span> — reg = opcode&7 → esp-=4 → [esp]=reg</div></div>
+    <div class="node"><div class="node-content l3">0x58~5F: <b>pop_r_v</b> <span class="len">[1B]</span> — reg = [esp] → esp+=4 → 写回 reg</div></div>
+</div>
+</div>
+
+<!-- ====== 0x66: prefix ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x66 — 操作数大小前缀 <span class="tag">1 个 opcode</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3"><b>data_size_16()</b> <span class="len">[1B]</span><br><span class="detail">全局 data_size 翻转为 16; 返回 1; 下一条指令用 16 位操作数</span></div></div>
+</div>
+</div>
+
+<!-- ====== 0x70~0x7F: JCC short ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x70~7F — 条件跳转 short (Jcc rel8)
+    <span class="tag">16 个 opcode</span>
+    <span class="detail">opcode 低 4 位 = 条件码, 后面 1 字节 = 有符号偏移</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0x70: JO 0x71: JNO 0x72: JB 0x73: JNB 0x74: JE 0x75: JNE<br>0x76: JBE 0x77: JA 0x78: JS 0x79: JNS 0x7A: JP 0x7B: JNP<br>0x7C: JL 0x7D: JGE 0x7E: JLE 0x7F: JG</div></div>
+    <div class="node"><div class="node-content l4"><span class="detail">每条: len=2 → rel8 = instr_fetch(eip+1,1) → 如果 condition_XX → eip += 2+rel8</span></div></div>
+</div>
+</div>
+
+<!-- ====== 0x80~0x83: Group 1 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x80~0x83 — Group 1: r/m + imm (需再读 ModR/M.reg 决定子操作)
+    <span class="tag">4 × 8 = 32 条</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">解码步骤: opcode → group_1_XX() → 读 ModR/M → reg=子操作码 → group_1_XX_entry[reg]</div></div>
+    <div class="node"><div class="node-content l8">0x80: group_1_b — ADD/OR/ADC/SBB/AND/SUB/XOR/CMP Eb,Ib <span class="len">[3B]</span><br><span class="detail">读 ModR/M.rm → r/m8 操作数; ModR/M.reg → 0=ADD 1=OR 2=ADC 3=SBB 4=AND 5=SUB 6=XOR 7=CMP; 接着 1B imm</span></div></div>
+    <div class="node"><div class="node-content l8">0x81: group_1_v — 同上, Ev,Iv <span class="len">[6B]</span> (32位imm)</div></div>
+    <div class="node"><div class="node-content l8">0x83: group_1_bv — 同上, Ev,Ib <span class="len">[3B]</span> (8位imm符号扩展)</div></div>
+</div>
+</div>
+
+<!-- ====== 0x88~0x8F: MOV ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x88~0x8F — MOV (双操作数, ModR/M)
+    <span class="tag">8 个 opcode</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0x88: <b>mov_r2rm_b</b> — MOV Eb,Gb <span class="len">[2B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x89: <b>mov_r2rm_v</b> — MOV Ev,Gv <span class="len">[2~7B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x8A: <b>mov_rm2r_b</b> — MOV Gb,Eb <span class="len">[2B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x8B: <b>mov_rm2r_v</b> — MOV Gv,Ev <span class="len">[2~7B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x8C: MOV Ev,Sw (段寄存器) 0x8D: <b>LEA</b> Gv,M 0x8E: MOV Sw,Ew 0x8F: <b>POP Ev</b></div></div>
+</div>
+</div>
+
+<!-- ====== 0x90~0x9F: 杂项 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0x90~0x9F — 杂项单字节指令
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0x90: <b>NOP</b> <span class="len">[1B]</span> — 什么也不做, len=1</div></div>
+    <div class="node"><div class="node-content l3">0x98: <b>CBW/CWDE</b> <span class="len">[1B]</span> — AL→AX 或 AX→EAX 符号扩展</div></div>
+    <div class="node"><div class="node-content l3">0x99: <b>CLTD/CDQ</b> <span class="len">[1B]</span> — EAX→EDX:EAX 符号扩展</div></div>
+    <div class="node"><div class="node-content l3">0x9C: PUSHF <span class="len">[1B]</span> 0x9D: POPF 0x9E: SAHF</div></div>
+</div>
+</div>
+
+<!-- ====== 0xA0~0xBF: MOV 立即数/累加器/MOVS/CMPS/TEST ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xA0~0xBF — MOV(累加器+绝对地址), MOV(imm→reg), TEST, MOVS, STOS, LODS, SCAS
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0xA0~A3: MOV moffs → AL/AX/EAX 及反向 <span class="len">[5B]</span> (opcode + 4B addr)</div></div>
+    <div class="node"><div class="node-content l3">0xA4~A7: MOVS (串移动) 0xA8~A9: TEST AL/AX/EAX, imm</div></div>
+    <div class="node"><div class="node-content l3">0xB0~B7: <b>mov_i2r_b</b> — MOV r8, imm8 <span class="len">[2B]</span> (reg=opcode&7)</div></div>
+    <div class="node"><div class="node-content l3">0xB8~BF: <b>mov_i2r_v</b> — MOV r32, imm32 <span class="len">[5B]</span> (reg=opcode&7)</div></div>
+</div>
+</div>
+
+<!-- ====== 0xC0~0xC7: Group 2 + MOV imm→rm ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xC0~0xC7 — Group 2 (移位) + MOV imm→rm + RET
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l8">0xC0: group_2_b — SHL/SHR/SAR Eb,Ib <span class="len">[3B]</span><br><span class="detail">reg: 4=SHL 5=SHR 7=SAR; rm=r/m8; 接着1B移位次数</span></div></div>
+    <div class="node"><div class="node-content l8">0xC1: group_2_v — 同上 Ev,Iv <span class="len">[3B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xC3: <b>RET</b> <span class="len">[1B]</span> — eip=[esp]; esp+=4</div></div>
+    <div class="node"><div class="node-content l3">0xC6~C7: <b>mov_i2rm_b/v</b> — MOV r/m, imm <span class="len">[3~8B]</span></div></div>
+</div>
+</div>
+
+<!-- ====== 0xD0~0xD3: Group 2 移位 (1/CL) ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xD0~0xD3 — Group 2 移位 (移位1次 / 移位CL次)
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l8">0xD0: group_2_1b — SHL/SHR/SAR Eb,1 <span class="len">[2B]</span></div></div>
+    <div class="node"><div class="node-content l8">0xD1: group_2_1v — 同上 Ev,1</div></div>
+    <div class="node"><div class="node-content l8">0xD2: group_2_cb — SHL/SHR/SAR Eb,CL <span class="len">[2B]</span></div></div>
+    <div class="node"><div class="node-content l8">0xD3: group_2_cv — 同上 Ev,CL</div></div>
+</div>
+</div>
+
+<!-- ====== 0xE8~0xEF: CALL/JMP/PUSH ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xE8~0xEF — CALL / JMP / PUSH imm
+    <span class="tag">无 ModR/M！</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l4"><b>0xE8: CALL rel32</b> <span class="len">[5B]</span><br><span class="detail">rel32=instr_fetch(eip+1,4); esp-=4; [esp]=eip+5; eip+=5+rel32</span></div></div>
+    <div class="node"><div class="node-content l4"><b>0xE9: JMP rel32</b> <span class="len">[5B]</span><br><span class="detail">eip+=5+rel32</span></div></div>
+    <div class="node"><div class="node-content l4"><b>0xEB: JMP rel8</b> <span class="len">[2B]</span><br><span class="detail">eip+=2+rel8(有符号)</span></div></div>
+    <div class="node"><div class="node-content l4"><b>0x68: PUSH imm32</b> <span class="len">[5B]</span></div></div>
+    <div class="node"><div class="node-content l4"><b>0x6A: PUSH imm8</b> <span class="len">[2B]</span> <span style="color:#e74c3c">※ 符号扩展到32位再压栈!</span></div></div>
+</div>
+</div>
+
+<!-- ====== 0x0F: 两字节 opcode ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    <b>0x0F</b> — 两字节 opcode 前缀 <span class="tag">256 个二级入口</span>
+    <span class="detail">读 op2 = instr_fetch(eip+1, 1) → opcode_2_byte_entry[op2]</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0x0F 0x44~0x4F: <b>CMOVcc</b> — 条件传送 <span class="len">[3~8B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x0F 0x80~0x8F: <b>Jcc near</b> — 条件跳转 rel32 <span class="len">[6B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x0F 0x90~0x9F: <b>SETcc</b> — 条件设字节 <span class="len">[3B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x0F 0xA3: <b>BT</b> — 位测试 <span class="len">[3B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x0F 0xB6~B7: <b>MOVZX</b> — 零扩展传送 <span class="len">[3B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x0F 0xBE~BF: <b>MOVSX</b> — 符号扩展传送 <span class="len">[3B]</span></div></div>
+    <div class="node"><div class="node-content l3">0x0F 0x01: group_7 (LGDT/LIDT...)</div></div>
+</div>
+</div>
+
+<!-- ====== 0xF6~0xF7: Group 3 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xF6~0xF7 — Group 3: TEST/NOT/NEG/MUL/IMUL/DIV/IDIV
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l8">0xF6: group_3_b — reg=0:TEST 2:NOT 3:NEG 4:MUL 5:IMUL 6:DIV 7:IDIV <span class="len">[2B]</span></div></div>
+    <div class="node"><div class="node-content l8">0xF7: group_3_v — 同上, 32位 <span class="len">[2~7B]</span></div></div>
+</div>
+</div>
+
+<!-- ====== 0xFE~0xFF: Group 4/5 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xFE~0xFF — Group 4 (INC/DEC r/m) + Group 5 (INC/DEC/CALL/JMP/PUSH r/m)
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l8">0xFE: group_4 — reg=0:INC Eb, reg=1:DEC Eb <span class="len">[2~7B]</span></div></div>
+    <div class="node"><div class="node-content l8">0xFF: group_5 — reg=0:INC Ev, 1:DEC Ev, 2:CALL Ev, 4:JMP Ev, 6:PUSH Ev <span class="len">[2~7B]</span></div></div>
+</div>
+</div>
+
+<!-- ====== 0xF0~0xFD: 前缀+标志位+杂项 ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xF0~0xFD — 前缀 / 标志位指令 / 杂项
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l3">0xF8: <b>CLC</b> — CF=0 <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xF9: <b>STC</b> — CF=1 <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xFC: <b>CLD</b> — DF=0 <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xFD: <b>STD</b> — DF=1 <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xFA: <b>CLI</b> — IF=0 <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xFB: <b>STI</b> — IF=1 <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xF3: <b>REP</b> 前缀 <span class="len">[1B]</span> 0xF4: <b>HLT</b> <span class="len">[1B]</span></div></div>
+    <div class="node"><div class="node-content l3">0xCC: INT3 (BREAK_POINT) 0xCD: INT imm8 0xCF: IRET</div></div>
+</div>
+</div>
+
+<!-- ====== 0xD8~0xDF: x87 FPU ====== -->
+<div class="node open">
+<div class="node-content l2" onclick="toggle(this.parentNode)">
+    <span class="arrow">▼</span>
+    0xD8~0xDF — x87 浮点指令 (Group x87)
+    <span class="tag">8 × 8 = 64 条</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l8">0xD8~0xDF: 每个 opcode + ModR/M.reg → group_x87_XX_entry[reg]<br><span class="detail">FADD/FMUL/FSUB/FDIV/FLD/FST/FXCH/FCOM/FUCOM 等</span></div></div>
+</div>
+</div>
+
+</div><!-- children -->
+</div><!-- root -->
+
+<!-- ====== ModR/M 解析子树 ====== -->
+<div class="node open" style="margin-top:30px;">
+<div class="node-content l1" onclick="toggle(this.parentNode)" style="background:#8b4513;">
+    <span class="arrow">▼</span>
+    ModR/M 字节解析子树 <span class="tag">用到 ModR/M 时必走此分支</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l2"><b>Step 1</b>: 读 ModR/M 字节 = instr_fetch(eip+1, 1) → 拆成 mod(2) reg(3) rm(3)</div></div>
+    <div class="node open">
+    <div class="node-content l3" onclick="toggle(this.parentNode)"><span class="arrow">▼</span> <b>Step 2</b>: 根据 mod 分流</div>
+    <div class="children">
+        <div class="node"><div class="node-content l4">mod=00 无偏移: rm=4→SIB <b>+disp32</b> | rm=5→disp32 | 其他→[寄存器]</div></div>
+        <div class="node"><div class="node-content l4">mod=01 +disp8: rm=4→SIB+disp8 | 其他→[寄存器]+disp8(有符号)</div></div>
+        <div class="node"><div class="node-content l4">mod=10 +disp32: rm=4→SIB+disp32 | 其他→[寄存器]+disp32</div></div>
+        <div class="node"><div class="node-content l4">mod=11 寄存器: type=OPR_REG, addr=rm (0~7)</div></div>
+    </div>
+    </div>
+    <div class="node open">
+    <div class="node-content l3" onclick="toggle(this.parentNode)"><span class="arrow">▼</span> <b>Step 2b</b>: rm=4 时读 SIB 字节</div>
+    <div class="children">
+        <div class="node"><div class="node-content l4">SIB = ss(2) index(3) base(3)</div></div>
+        <div class="node"><div class="node-content l4">index≠4: idx = cpu.gpr[index]._32 * (1&lt;&lt;ss) | index=4: idx=0 (无变址)</div></div>
+        <div class="node"><div class="node-content l4">base≠5: addr = cpu.gpr[base]._32 + idx | base=5且mod=0: addr = idx + disp32</div></div>
+        <div class="node"><div class="node-content l4">最终: opr->addr = base + index*scale (+ disp)</div></div>
+    </div>
+    </div>
+    <div class="node"><div class="node-content l5"><b>最终返回</b>: len = 1(ModR/M) + (SIB?1:0) + (disp? 1/4:0); 填充 opr->type/addr/sreg</div></div>
+</div>
+</div>
+
+<!-- ====== instr_execute 执行阶段子树 ====== -->
+<div class="node open" style="margin-top:30px;">
+<div class="node-content l1" onclick="toggle(this.parentNode)" style="background:#2e4053;">
+    <span class="arrow">▼</span>
+    执行阶段子树 <span class="tag">译码完成后的指令执行</span>
+</div>
+<div class="children">
+    <div class="node"><div class="node-content l2">双操作数: <b>instr_execute_2op()</b> → operand_read(src) → ALU运算 → operand_write(dest)</div></div>
+    <div class="node"><div class="node-content l2">单操作数: <b>instr_execute_1op()</b> → operand_read(src) → 运算 → operand_write(src)</div></div>
+    <div class="node"><div class="node-content l2">条件指令: <b>condition_XX</b> → if(条件成立) 执行; else 跳过</div></div>
+
+    <div class="node open">
+    <div class="node-content l3" onclick="toggle(this.parentNode)"><span class="arrow">▼</span> operand_read 分发</div>
+    <div class="children">
+        <div class="node"><div class="node-content l4">OPR_REG → opr->val = cpu.gpr[opr->addr]._32</div></div>
+        <div class="node"><div class="node-content l4">OPR_MEM → opr->val = vaddr_read(opr->addr, opr->sreg, opr->data_size/8)</div></div>
+        <div class="node"><div class="node-content l4">OPR_IMM → opr->val = vaddr_read(opr->addr, SREG_CS, opr->data_size/8)</div></div>
+    </div>
+    </div>
+</div>
+</div>
+
+</div><!-- tree -->
+
+<script>
+function toggle(node) {
+    node.classList.toggle('open');
+    const arrow = node.querySelector('.arrow');
+    if (arrow) arrow.textContent = node.classList.contains('open') ? '▼' : '▶';
+}
+
+// 默认展开
+document.querySelectorAll('.node').forEach(n => {
+    const a = n.querySelector('.arrow');
+    if (a) a.textContent = n.classList.contains('open') ? '▼' : '▶';
+});
+</script>
+
+</body>
+</html>
