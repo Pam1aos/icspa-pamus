@@ -4,6 +4,8 @@
 #include "nemu.h"
 #include "device/i8259_pic.h"
 
+//#include "cpu/instr/mov.h"
+
 typedef union GateDescriptor {
 	struct
 	{
@@ -21,5 +23,6 @@ typedef union GateDescriptor {
 
 void raise_intr(uint8_t intr_no);
 void raise_sw_intr(uint8_t intr_no);
+
 
 #endif
