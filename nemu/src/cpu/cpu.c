@@ -30,14 +30,21 @@ void init_cpu(const uint32_t init_eip)
 	}
 	cpu.eip = init_eip;
 	cpu.esp = (128 << 20) - 16;
+
 #ifdef IA32_SEG
-	cpu.cr0.val = 0x0;
-	cpu.gdtr.base = cpu.gdtr.limit = 0x0;
-	for (i = 0; i < 6; i++)
-	{
-		cpu.segReg[i].val = 0x0;
-	}
+    cpu.cr0.val = 0x0;
+    cpu.gdtr.base = cpu.gdtr.limit = 0x0;
+    for (i = 0; i < 6; i++){
+      cpu.segReg[i].val = 0x0;
+
+      cpu.segReg[i].base            = 0x0;
+      cpu.segReg[i].limit           = 0x0;
+      cpu.segReg[i].type            = 0x0;
+      cpu.segReg[i].privilege_level = 0x0;
+      cpu.segReg[i].soft_use        = 0x0;
+    }
 #endif
+
 #ifdef IA32_INTR
 	cpu.idtr.base = cpu.idtr.limit = 0x0;
 	cpu.intr = 0x0;
@@ -63,7 +70,15 @@ void exec(uint32_t n)
 	{
 		if(!is_nemu_hlt)
 		{
-			instr_len = exec_inst();
+//            printf("Trace EIP: 0x%08x\n", cpu.eip);
+//            fflush(stdout); // 【极其重要】强制立刻输出，防止崩溃时丢失！
+//            printf("eip=0x%x op=0x%02x\n", cpu.eip, instr_fetch(cpu.eip, 1));
+//            printf("eip=0x%08x opcode=0x%02x\n", cpu.eip, instr_fetch(cpu.eip, 1));
+//            if (cpu.eip == 0x300da || cpu.eip == 0x3003d || cpu.eip == 0x300b4) {
+//                printf("TRACE eip=0x%x eax=0x%x edx=0x%x ZF=%d\n",
+//                       cpu.eip, cpu.eax, cpu.edx, cpu.eflags.ZF);
+//            }
+            instr_len = exec_inst();
 			cpu.eip += instr_len;
 			n--;
 
@@ -127,6 +142,7 @@ int exec_inst()
 	uint8_t opcode = 0;
 	// get the opcode
 	opcode = instr_fetch(cpu.eip, 1);
+//    printf("eip=0x%08x opcode=0x%02x\n", cpu.eip, opcode);
 //printf("opcode = %x, eip = %x\n", opcode, cpu.eip);
 // instruction decode and execution
 #ifdef NEMU_REF_INSTR
