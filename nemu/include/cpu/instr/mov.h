@@ -1,6 +1,10 @@
 #ifndef __INSTR_MOV_H__
 #define __INSTR_MOV_H__
 
+make_instr_func(mov_rm2sreg);
+make_instr_func(mov_cr2r);
+make_instr_func(mov_r2cr);
+
 make_instr_func(mov_r2rm_b);
 make_instr_func(mov_r2rm_v);
 make_instr_func(mov_rm2r_b);
@@ -37,5 +41,6 @@ make_instr_func(cmovo_rm2r_v);
 make_instr_func(cmovp_rm2r_v);
 make_instr_func(cmovs_rm2r_v);
 make_instr_func(cmove_rm2r_v);
+
 
 #endif
