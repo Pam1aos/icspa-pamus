@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PA3-3 虚拟内存分页映射演示</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1, h3 { text-align: center; color: #2c3e50; }
+        .description { text-align: center; color: #666; margin-bottom: 20px; max-width: 800px; margin-left: auto; margin-right: auto; line-height: 1.6;}
+
+        .controls { display: flex; justify-content: center; gap: 15px; margin-bottom: 30px; }
+        button {
+            padding: 10px 20px; border: none; border-radius: 6px; font-size: 16px; cursor: pointer;
+            transition: all 0.3s; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #btn-code { background-color: #3b82f6; color: white; }
+        #btn-code:hover { background-color: #2563eb; }
+        #btn-data { background-color: #10b981; color: white; }
+        #btn-data:hover { background-color: #059669; }
+        #btn-stack { background-color: #ef4444; color: white; }
+        #btn-stack:hover { background-color: #dc2626; }
+        #btn-reset { background-color: #6b7280; color: white; }
+        #btn-reset:hover { background-color: #4b5563; }
+        button:disabled { background-color: #cbd5e1 !important; color: #94a3b8 !important; cursor: not-allowed; box-shadow: none; transform: none; }
+
+        .dashboard { display: flex; justify-content: space-between; gap: 20px; max-width: 1200px; margin: 0 auto; }
+        .column {
+            background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            flex: 1; display: flex; flex-direction: column; border-top: 5px solid #cbd5e1;
+        }
+
+        /* 内存块样式 */
+        .memory-space { display: flex; flex-direction: column; gap: 8px; flex-grow: 1; }
+        .block {
+            border: 2px dashed #e2e8f0; border-radius: 6px; padding: 15px; text-align: center;
+            background-color: #f8fafc; font-family: monospace; font-size: 14px; color: #94a3b8;
+            transition: all 0.5s ease;
+        }
+        .block.empty-large { flex-grow: 1; display: flex; align-items: center; justify-content: center; min-height: 100px; }
+
+        /* 状态样式 */
+        .active-code { border-color: #3b82f6; background-color: #eff6ff; color: #1e3a8a; border-style: solid; }
+        .active-data { border-color: #10b981; background-color: #ecfdf5; color: #064e3b; border-style: solid; }
+        .active-stack { border-color: #ef4444; background-color: #fef2f2; color: #7f1d1d; border-style: solid; }
+
+        /* 页表样式 */
+        .pt-entry {
+            display: flex; justify-content: space-between; align-items: center; padding: 10px;
+            border-bottom: 1px solid #f1f5f9; font-family: monospace; font-size: 13px;
+        }
+        .pt-entry:last-child { border-bottom: none; }
+        .pt-entry .vpn, .pt-entry .pfn { background: #e2e8f0; padding: 4px 8px; border-radius: 4px; color: #333; }
+        .pt-arrow { color: #cbd5e1; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<h1>虚拟地址空间映射演示图</h1>
+<div class="description">
+    注意观察：4GB的虚拟空间看起来很庞大，但大部分区域是空的。只有当你分配特定段时，系统才会为它在物理内存中寻找真实的空闲页框，并在中间的页表中建立映射字典。
+</div>
+
+<div class="controls">
+    <button id="btn-stack" onclick="allocate('stack')">分配栈空间 (高地址)</button>
+    <button id="btn-data" onclick="allocate('data')">分配数据段</button>
+    <button id="btn-code" onclick="allocate('code')">分配代码段 (低地址)</button>
+    <button id="btn-reset" onclick="resetAll()">重置模拟</button>
+</div>
+
+<div class="dashboard">
+    <!-- 左侧：虚拟内存 (4GB) -->
+    <div class="column" style="border-top-color: #8b5cf6;">
+        <h3>虚拟地址空间 (4GB)</h3>
+        <div class="memory-space">
+            <div class="block">0xFFFFFFFF (内核保留区)</div>
+            <div id="vm-stack" class="block">虚拟页: 等待分配栈...</div>
+            <div class="block empty-large">... 大量未分配的虚拟空间 ...<br>(按需分配，绝大部分为空)</div>
+            <div id="vm-data" class="block">虚拟页: 等待分配数据段...</div>
+            <div id="vm-code" class="block">虚拟页: 等待分配代码段...</div>
+            <div class="block">0x00000000 (不可访问区)</div>
+        </div>
+    </div>
+
+    <!-- 中间：页表 -->
+    <div class="column" style="border-top-color: #f59e0b;">
+        <h3>进程页表 (翻译字典)</h3>
+        <div id="page-table" class="memory-space" style="justify-content: flex-start; background: #f8fafc; border-radius: 6px; padding: 10px; border: 1px solid #e2e8f0;">
+            <div style="text-align: center; color: #94a3b8; font-size: 14px; margin-top: 50px;">
+                页表当前为空<br>点击上方按钮分配内存
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：物理内存 (128MB) -->
+    <div class="column" style="border-top-color: #14b8a6;">
+        <h3>物理主存 (NEMU的128MB)</h3>
+        <div class="memory-space">
+            <div class="block">0x07FFFFFF (物理内存顶部)</div>
+            <div id="pm-3" class="block">物理页框 3 (空闲)</div>
+            <div id="pm-2" class="block">物理页框 2 (空闲)</div>
+            <div id="pm-1" class="block">物理页框 1 (空闲)</div>
+            <div class="block empty-large">... 其它物理空间 ...</div>
+            <div class="block" style="background-color: #f1f5f9;">0x00000000 ~ 0x00FFFFFF<br>(NEMU Kernel 保留 16MB)</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 模拟数据结构
+    const config = {
+        code: { vAddr: '0x08048000', vpn: '0x08048', pfn: '0x01000', pAddr: '0x01000000', pId: 'pm-1', name: '代码段', colorClass: 'active-code' },
+        data: { vAddr: '0x08049000', vpn: '0x08049', pfn: '0x01001', pAddr: '0x01001000', pId: 'pm-2', name: '数据段', colorClass: 'active-data' },
+        stack:{ vAddr: '0xBFFFF000', vpn: '0xBFFFF', pfn: '0x01002', pAddr: '0x01002000', pId: 'pm-3', name: '栈空间', colorClass: 'active-stack' }
+    };
+
+    // 记录页表项
+    let pageTableEntries = [];
+
+    function allocate(type) {
+        const btn = document.getElementById(`btn-${type}`);
+        btn.disabled = true;
+        btn.innerText = `已分配 ${config[type].name}`;
+
+        const data = config[type];
+
+        // 1. 更新虚拟内存视图
+        const vmBlock = document.getElementById(`vm-${type}`);
+        vmBlock.className = `block ${data.colorClass}`;
+        vmBlock.innerHTML = `<strong>${data.name}</strong><br>虚拟地址: ${data.vAddr}<br>虚拟页号 (VPN): ${data.vpn}`;
+
+        // 2. 更新物理内存视图
+        const pmBlock = document.getElementById(data.pId);
+        pmBlock.className = `block ${data.colorClass}`;
+        pmBlock.innerHTML = `<strong>${data.name} (已映射)</strong><br>物理地址: ${data.pAddr}<br>物理页框号 (PFN): ${data.pfn}`;
+
+        // 3. 添加到页表
+        pageTableEntries.push(data);
+        renderPageTable();
+    }
+
+    function renderPageTable() {
+        const ptContainer = document.getElementById('page-table');
+        ptContainer.innerHTML = ''; // 清空提示
+
+        pageTableEntries.forEach(entry => {
+            const row = document.createElement('div');
+            row.className = 'pt-entry';
+            // 使用对应的颜色类来高亮页表项，使其与两侧对应
+            let colorHex = entry.name === '代码段' ? '#eff6ff' : (entry.name === '数据段' ? '#ecfdf5' : '#fef2f2');
+            let borderHex = entry.name === '代码段' ? '#3b82f6' : (entry.name === '数据段' ? '#10b981' : '#ef4444');
+
+            row.style.backgroundColor = colorHex;
+            row.style.borderLeft = `4px solid ${borderHex}`;
+
+            row.innerHTML = `
+                    <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+                        <span style="font-size:11px; color:#666;">虚拟页号</span>
+                        <span class="vpn">${entry.vpn}</span>
+                    </div>
+                    <span class="pt-arrow">━━(P=1)━━▶</span>
+                    <div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+                        <span style="font-size:11px; color:#666;">物理页框</span>
+                        <span class="pfn">${entry.pfn}</span>
+                    </div>
+                `;
+            ptContainer.appendChild(row);
+        });
+    }
+
+    function resetAll() {
+        // 重置页表数据
+        pageTableEntries = [];
+
+        // 重置按钮
+        ['code', 'data', 'stack'].forEach(type => {
+            const btn = document.getElementById(`btn-${type}`);
+            btn.disabled = false;
+            if(type === 'code') btn.innerText = '分配代码段 (低地址)';
+            if(type === 'data') btn.innerText = '分配数据段';
+            if(type === 'stack') btn.innerText = '分配栈空间 (高地址)';
+
+            // 重置虚拟内存块
+            const vmBlock = document.getElementById(`vm-${type}`);
+            vmBlock.className = 'block';
+            let typeName = type === 'code' ? '代码段' : (type === 'data' ? '数据段' : '栈');
+            vmBlock.innerHTML = `虚拟页: 等待分配${typeName}...`;
+
+            // 重置物理内存块
+            const pmBlock = document.getElementById(config[type].pId);
+            pmBlock.className = 'block';
+            let pmNum = type === 'code' ? 1 : (type === 'data' ? 2 : 3);
+            pmBlock.innerHTML = `物理页框 ${pmNum} (空闲)`;
+        });
+
+        // 重置页表视图
+        document.getElementById('page-table').innerHTML = `
+                <div style="text-align: center; color: #94a3b8; font-size: 14px; margin-top: 50px;">
+                    页表当前为空<br>点击上方按钮分配内存
+                </div>
+            `;
+    }
+</script>
+</body>
+</html>
