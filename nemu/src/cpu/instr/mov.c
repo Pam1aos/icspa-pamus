@@ -1,8 +1,75 @@
 #include "cpu/instr.h"
 
+
+
+make_instr_func(mov_rm2sreg) {
+        OPERAND rm;
+        uint8_t sreg_no;
+        rm.data_size = 16;
+        int len = 1;
+        len += modrm_opcode_rm(eip + 1, &sreg_no, &rm);
+        //     ↑ sreg_no 自动取 reg 字段的值（0~5），
+        //       是 ES 还是 DS 由 ModR/M 决定，不需要分支
+
+        operand_read(&rm);
+        cpu.segReg[sreg_no].val = rm.val;
+        load_sreg(sreg_no);
+
+        return len;
+}
+
+make_instr_func(mov_cr2r) {
+        OPERAND cr, r;
+        uint8_t cr_no;
+        r.data_size = 32;
+
+        int len = 1;
+        // reg 字段 = 控制寄存器编号，r/m = 通用寄存器
+        len += modrm_opcode_rm(eip + 1, &cr_no, &r);
+        //         ↑ 返回 reg 字段（CR 编号 0/2/3）
+
+        cr.type      = OPR_CREG;
+        cr.addr      = cr_no;
+        cr.data_size = 32;
+
+        operand_read(&cr);              // 读控制寄存器
+        r.val = cr.val;
+        operand_write(&r);              // 写通用寄存器
+
+        return len;
+}
+
+make_instr_func(mov_r2cr) {
+        OPERAND cr, r;
+        uint8_t cr_no;
+        r.data_size = 32;
+
+        int len = 1;
+        len += modrm_opcode_rm(eip + 1, &cr_no, &r);
+
+        cr.type      = OPR_CREG;
+        cr.addr      = cr_no;
+        cr.data_size = 32;
+
+        operand_read(&r);               // 读通用寄存器
+        cr.val = r.val;
+        operand_write(&cr);             // 写控制寄存器
+
+        return len;
+}
+
+
+
 static void instr_execute_2op() 
 {
-	operand_read(&opr_src);
+    operand_read(&opr_src);
+    operand_read(&opr_dest);
+
+    // 2. 处理 bv 后缀的符号扩展问题
+    if (opr_src.data_size == 8 && opr_dest.data_size != 8) {
+        opr_src.val = sign_ext(opr_src.val, 8);
+    }
+
 	opr_dest.val = opr_src.val;
 	operand_write(&opr_dest);
 }
