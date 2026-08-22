@@ -3,15 +3,70 @@
 
 #include "nemu.h"
 
+// 保护模式类型定义（必须在 CPU_STATE 之前声明）
+typedef struct {
+    uint32_t limit :16;
+    uint32_t base :32;
+} GDTR;
+
+// 紧跟着 GDTR 定义之后添加 IDTR 结构体
+typedef struct {
+    uint32_t limit :16;
+    uint32_t base :32;
+} IDTR;
+
+typedef union {
+    struct {
+        uint32_t pe :1;
+        uint32_t mp :1;
+        uint32_t em :1;
+        uint32_t ts :1;
+        uint32_t et :1;
+        uint32_t reserve :26;
+        uint32_t pg :1;
+    };
+    uint32_t val;
+} CR0;
+
+typedef union {
+    struct {
+        uint32_t reserve :12;
+        uint32_t pdbr :20;
+    };
+    uint32_t val;
+}CR3;
+
+
+typedef struct {
+    // the 16-bit visible part, i.e., the selector
+    union {
+        uint16_t val;
+        struct {
+            uint32_t rpl :2;
+            uint32_t ti :1;
+            uint32_t index :13;
+        };
+    };
+
+    // the invisible part, i.e., cache part
+    struct {
+        uint32_t base;
+        uint32_t limit;
+        uint32_t type :5;
+        uint32_t privilege_level :2;
+        uint32_t soft_use :1;
+    };
+} SegReg;
+
 // define the structure of registers
 typedef struct
 {
 	// general purpose registers
-	struct
+	union
 	{
-		struct
+		union
 		{
-			struct
+			union
 			{
 				uint32_t _32;
 				uint16_t _16;
