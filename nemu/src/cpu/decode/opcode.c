@@ -1,83 +1,93 @@
 #include "cpu/instr.h"
 
 instr_func opcode_entry[256] = {
-    /* 0x00 - 0x03*/ inv, inv, inv, inv,
-    /* 0x04 - 0x07*/ inv, inv, inv, inv,
-    /* 0x08 - 0x0b*/ inv, inv, inv, inv,
-    /* 0x0c - 0x0f*/ inv, inv, inv, opcode_2_byte,
-    /* 0x10 - 0x13*/ inv, inv, inv, inv,
-    /* 0x14 - 0x17*/ inv, inv, inv, inv,
-    /* 0x18 - 0x1b*/ inv, inv, inv, inv,
-    /* 0x1c - 0x1f*/ inv, inv, inv, inv,
-    /* 0x20 - 0x23*/ inv, inv, inv, inv,
-    /* 0x24 - 0x27*/ inv, inv, inv, inv,
-    /* 0x28 - 0x2b*/ inv, inv, inv, inv,
-    /* 0x2c - 0x2f*/ inv, inv, inv, inv,
-    /* 0x30 - 0x33*/ inv, inv, inv, inv,
-    /* 0x34 - 0x37*/ inv, inv, inv, inv,
-    /* 0x38 - 0x3b*/ inv, inv, inv, inv,
-    /* 0x3c - 0x3f*/ inv, inv, inv, inv,
-    /* 0x40 - 0x43*/ inv, inv, inv, inv,
-    /* 0x44 - 0x47*/ inv, inv, inv, inv,
-    /* 0x48 - 0x4b*/ inv, inv, inv, inv,
-    /* 0x4c - 0x4f*/ inv, inv, inv, inv,
-    /* 0x50 - 0x53*/ inv, inv, inv, inv,
-    /* 0x54 - 0x57*/ inv, inv, inv, inv,
-    /* 0x58 - 0x5b*/ inv, inv, inv, inv,
-    /* 0x5c - 0x5f*/ inv, inv, inv, inv,
-    /* 0x60 - 0x63*/ inv, inv, inv, inv,
+    // [PA-2-1] 修正: 0x00~0x05 是 ADD (之前错放在 0x30)
+    /* 0x00 - 0x03*/ add_r2rm_b, add_r2rm_v, add_rm2r_b, add_rm2r_v,
+    /* 0x04 - 0x07*/ add_i2a_b,  add_i2a_v,  inv, inv,
+    /* 0x08 - 0x0b*/ or_r2rm_b,  or_r2rm_v,  or_rm2r_b,  or_rm2r_v,
+    /* 0x0c - 0x0f*/ or_i2a_b,   or_i2a_v,   inv, opcode_2_byte,
+    /* 0x10 - 0x13*/ adc_r2rm_b, adc_r2rm_v, adc_rm2r_b, adc_rm2r_v,
+    /* 0x14 - 0x17*/ adc_i2a_b,  adc_i2a_v,  inv, inv,
+    /* 0x18 - 0x1b*/ sbb_r2rm_b, sbb_r2rm_v, sbb_rm2r_b, sbb_rm2r_v,
+    /* 0x1c - 0x1f*/ sbb_i2a_b,  sbb_i2a_v,  inv, inv,
+    /* 0x20 - 0x23*/ and_r2rm_b, and_r2rm_v, and_rm2r_b, and_rm2r_v,
+
+    /* 0x24 - 0x27*/ and_i2a_b,  and_i2a_v,  inv, inv,
+    /* 0x28 - 0x2b*/ sub_r2rm_b, sub_r2rm_v, sub_rm2r_b, sub_rm2r_v,
+    /* 0x2c - 0x2f*/ sub_i2a_b,  sub_i2a_v,  inv, inv,
+    // [PA-2-1] 修正: 0x30~0x35 是 XOR (之前错放为 ADD)
+    /* 0x30 - 0x33*/ xor_r2rm_b, xor_r2rm_v, xor_rm2r_b, xor_rm2r_v,
+    /* 0x34 - 0x37*/ xor_i2a_b,  xor_i2a_v,  inv, inv,
+    /* 0x38 - 0x3b*/ cmp_r2rm_b, cmp_r2rm_v, cmp_rm2r_b, cmp_rm2r_v,
+    /* 0x3c - 0x3f*/ cmp_i2a_b,  cmp_i2a_v,  inv, inv,
+    /* 0x40 - 0x43*/ inc_r_v, inc_r_v, inc_r_v, inc_r_v,
+    /* 0x44 - 0x47*/ inc_r_v, inc_r_v, inc_r_v, inc_r_v,
+    // [PA-2-1] 修正: 0x48~0x4F 是 DEC r32 (之前为 inv)
+    /* 0x48 - 0x4b*/ dec_r_v, dec_r_v, dec_r_v, dec_r_v,
+    /* 0x4c - 0x4f*/ dec_r_v, dec_r_v, dec_r_v, dec_r_v,
+    /* 0x50 - 0x53*/ push_r_v, push_r_v, push_r_v, push_r_v,
+    /* 0x54 - 0x57*/ push_r_v, push_r_v, push_r_v, push_r_v,
+    /* 0x58 - 0x5b*/ pop_r_v, pop_r_v, pop_r_v, pop_r_v,
+    /* 0x5c - 0x5f*/ pop_r_v, pop_r_v, pop_r_v, pop_r_v,
+/* 0x60 - 0x63*/ pusha, popa, inv, inv,
     /* 0x64 - 0x67*/ inv, inv, data_size_16, inv,
-    /* 0x68 - 0x6b*/ inv, inv, inv, inv,
+    // [PA-2-1] 修正: PUSH imm32 / PUSH imm8 (之前为中文占位符)
+    // [PA-2-1] 0x69=IMUL Gv,Ev,Iv  0x6B=IMUL Gv,Ev,Ib
+    /* 0x68 - 0x6b*/ push_i_v, imul_irm2r_v, push_i_b, imul_i8rm2r_v,
     /* 0x6c - 0x6f*/ inv, inv, inv, inv,
-    /* 0x70 - 0x73*/ inv, inv, inv, inv,
-    /* 0x74 - 0x77*/ inv, inv, inv, inv,
-    /* 0x78 - 0x7b*/ inv, inv, inv, inv,
-    /* 0x7c - 0x7f*/ inv, inv, inv, inv,
+    // [PA-2-1] 修正: 0x70~0x7F JCC short (之前全 inv)
+    /* 0x70 - 0x73*/ jo_short_,  jno_short_, jb_short_,  jae_short_,
+    /* 0x74 - 0x77*/ je_short_,  jne_short_, jna_short_, ja_short_,
+    /* 0x78 - 0x7b*/ js_short_,  jns_short_, jp_short_,  jnp_short_,
+    /* 0x7c - 0x7f*/ jl_short_,  jge_short_, jle_short_, jg_short_,
     /* 0x80 - 0x83*/ group_1_b, group_1_v, nemu_trap, group_1_bv,
-    /* 0x84 - 0x87*/ inv, inv, inv, inv,
+    /* 0x84 - 0x87*/ test_r2rm_b, test_r2rm_v, inv, inv,
     /* 0x88 - 0x8b*/ mov_r2rm_b, mov_r2rm_v, mov_rm2r_b, mov_rm2r_v,
-    /* 0x8c - 0x8f*/ inv, inv, inv, inv,
+    // [PA-2-1] 修正: 0x8D = LEA (之前为 inv)
+    /* 0x8c - 0x8f*/ inv , lea_rm2r_v, mov_rm2sreg, pop_rm_v,
     /* 0x90 - 0x93*/ nop, inv, inv, inv,
     /* 0x94 - 0x97*/ inv, inv, inv, inv,
     /* 0x98 - 0x9b*/ cbw_a_v, cltd, inv, inv,
     /* 0x9c - 0x9f*/ inv, inv, sahf, inv,
     /* 0xa0 - 0xa3*/ mov_o2a_b, mov_o2a_v, mov_a2o_b, mov_a2o_v,
-    /* 0xa4 - 0xa7*/ movs_b, movs_v, inv, inv,
-    /* 0xa8 - 0xab*/ inv, inv, inv, inv,
+    /* 0xa4 - 0xa7*/ movs_b, movs_v, cmps_b, cmps_v,
+    // [PA-2-1] 修正: 0xAA/AB = STOS (之前为 inv)
+    /* 0xa8 - 0xab*/ test_i2a_b, test_i2a_v, stos_b, stos_v,
     /* 0xac - 0xaf*/ inv, inv, inv, inv,
     /* 0xb0 - 0xb3*/ mov_i2r_b, mov_i2r_b, mov_i2r_b, mov_i2r_b,
     /* 0xb4 - 0xb7*/ mov_i2r_b, mov_i2r_b, mov_i2r_b, mov_i2r_b,
     /* 0xb8 - 0xbb*/ mov_i2r_v, mov_i2r_v, mov_i2r_v, mov_i2r_v,
     /* 0xbc - 0xbf*/ mov_i2r_v, mov_i2r_v, mov_i2r_v, mov_i2r_v,
-    /* 0xc0 - 0xc3*/ group_2_b, group_2_v, inv, inv,
+    /* 0xc0 - 0xc3*/ group_2_b, group_2_v, ret_imm16, ret,
     /* 0xc4 - 0xc7*/ inv, inv, mov_i2rm_b, mov_i2rm_v,
-    /* 0xc8 - 0xcb*/ inv, inv, inv, inv,
-    /* 0xcc - 0xcf*/ inv, inv, inv, inv,
+    /* 0xc8 - 0xcb*/ inv, leave, inv, inv,
+        /* 0xcc - 0xcf*/ inv, int_, inv, iret,
     /* 0xd0 - 0xd3*/ group_2_1b, group_2_1v, group_2_cb, group_2_cv,
     /* 0xd4 - 0xd7*/ inv, inv, inv, inv,
     /* 0xd8 - 0xdb*/ group_x87_d8, group_x87_d9, group_x87_da, group_x87_db,
     /* 0xdc - 0xdf*/ group_x87_dc, group_x87_dd, group_x87_de, group_x87_df,
-    /* 0xe0 - 0xe3*/ inv, inv, inv, inv,
-    /* 0xe4 - 0xe7*/ inv, inv, inv, inv,
-    /* 0xe8 - 0xeb*/ inv, inv, inv, inv,
-    /* 0xec - 0xef*/ inv, inv, inv, inv,
+    // [PA-2-1] 修正: 0xE3 = JECXZ, 0xE8 = CALL, 0xE9 = JMP, 0xEB = JMP short (之前全 inv)
+    /* 0xe0 - 0xe3*/ inv, inv, inv, jecxz_short_,
+    /* 0xe4 - 0xe7*/ in_i2a_b, in_i2a_v, out_a2i_b, out_a2i_v,
+    /* 0xe8 - 0xeb*/ call_rel32, jmp_near, ljmp, jmp_short,
+    /* 0xec - 0xef*/ in_d2a_b, in_d2a_v, out_a2d_b, out_a2d_v,
     /* 0xf0 - 0xf3*/ inv, break_point, inv, rep_repe,
     /* 0xf4 - 0xf7*/ hlt, inv, group_3_b, group_3_v,
-    /* 0xf8 - 0xfb*/ clc, inv, inv, inv,
+    /* 0xf8 - 0xfb*/ clc, inv, cli, sti,
     /* 0xfc - 0xff*/ cld, inv, inv, group_5_indirect,
 };
 
 /* 0x80 */
 instr_func group_1_b_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {add_i2rm_b, or_i2rm_b, adc_i2rm_b, sbb_i2rm_b, and_i2rm_b, sub_i2rm_b, xor_i2rm_b, cmp_i2rm_b};
 
 /* 0x81 */
 instr_func group_1_v_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {add_i2rm_v, or_i2rm_v, adc_i2rm_v, sbb_i2rm_v, and_i2rm_v, sub_i2rm_v, xor_i2rm_v, cmp_i2rm_v};
 
 /* 0x83 */
 instr_func group_1_bv_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {add_i2rm_bv, or_i2rm_bv, adc_i2rm_bv, sbb_i2rm_bv, and_i2rm_bv, sub_i2rm_bv, xor_i2rm_bv, cmp_i2rm_bv};
 
 /* 0xc0 */
 instr_func group_2_b_entry[8] =
@@ -103,20 +113,22 @@ instr_func group_2_cb_entry[8] =
 instr_func group_2_cv_entry[8] =
     {inv, inv, inv, inv, shl_c2rm_bv, inv, shr_c2rm_bv, sar_c2rm_bv};
 
+// [PA-2-1] 修正: group_3 中 MUL/IMUL/DIV/IDIV (之前为中文占位符)
 /* 0xf6 */
 instr_func group_3_b_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {test_i2rm_b, inv, not_rm_b, neg_rm_b, mul_rm2a_b, imul_rm2a_b, div_rm2a_b, idiv_rm2a_b};
 
 /* 0xf7 */
 instr_func group_3_v_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {test_i2rm_v, inv, not_rm_v, neg_rm_v, mul_rm2a_v, imul_rm2a_v, div_rm2a_v, idiv_rm2a_v};
 
+// [PA-2-1] 修正: group_5 中 CALL Ev / JMP Ev (之前为 inv)
 /* 0xff */
 instr_func group_5_indirect_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {inc_rm_v, dec_rm_v, call_rm_v, inv, jmp_rm_v, inv, push_rm_v, inv};
 
 instr_func group_7_entry[8] =
-    {inv, inv, inv, inv, inv, inv, inv, inv};
+    {inv, inv, lgdt, lidt, inv, inv, inv, inv};
 
 /* 0xd8 */
 instr_func group_x87_d8_entry[8] =
@@ -150,6 +162,7 @@ instr_func group_x87_de_entry[8] =
 instr_func group_x87_df_entry[8] =
     {inv, inv, inv, inv, x87_fnstsw, x87_fucomip, x87_fcomip, inv};
 
+// [PA-2-1] 修正: 补全 CMOVcc / SETcc / JCC near / IMUL 等两字节 opcode
 instr_func opcode_2_byte_entry[256] = {
     /* 0x00 - 0x03*/ inv, group_7, inv, inv,
     /* 0x04 - 0x07*/ inv, inv, inv, inv,
@@ -159,7 +172,7 @@ instr_func opcode_2_byte_entry[256] = {
     /* 0x14 - 0x17*/ inv, inv, inv, inv,
     /* 0x18 - 0x1b*/ inv, inv, inv, inv,
     /* 0x1c - 0x1f*/ inv, inv, inv, inv,
-    /* 0x20 - 0x23*/ inv, inv, inv, inv,
+    /* 0x20 - 0x23*/ mov_cr2r, inv, mov_r2cr, inv,
     /* 0x24 - 0x27*/ inv, inv, inv, inv,
     /* 0x28 - 0x2b*/ inv, inv, inv, inv,
     /* 0x2c - 0x2f*/ inv, inv, inv, inv,
@@ -167,10 +180,11 @@ instr_func opcode_2_byte_entry[256] = {
     /* 0x34 - 0x37*/ inv, inv, inv, inv,
     /* 0x38 - 0x3b*/ inv, inv, inv, inv,
     /* 0x3c - 0x3f*/ inv, inv, inv, inv,
-    /* 0x40 - 0x43*/ inv, inv, inv, inv,
-    /* 0x44 - 0x47*/ cmove_rm2r_v, cmovne_rm2r_v, inv, cmova_rm2r_v,
-    /* 0x48 - 0x4b*/ cmovs_rm2r_v, cmovns_rm2r_v, inv, inv,
-    /* 0x4c - 0x4f*/ inv, cmovge_rm2r_v, inv, inv,
+    // [PA-2-1] CMOVcc 补全 (0F 40~4F)
+    /* 0x40 - 0x43*/ cmovo_rm2r_v,  cmovno_rm2r_v, cmovb_rm2r_v,  cmovae_rm2r_v,
+    /* 0x44 - 0x47*/ cmove_rm2r_v,  cmovne_rm2r_v, cmovbe_rm2r_v, cmova_rm2r_v,
+    /* 0x48 - 0x4b*/ cmovs_rm2r_v,  cmovns_rm2r_v, cmovp_rm2r_v,  cmovnp_rm2r_v,
+    /* 0x4c - 0x4f*/ cmovl_rm2r_v,  cmovge_rm2r_v, cmovle_rm2r_v, cmovg_rm2r_v,
     /* 0x50 - 0x53*/ inv, inv, inv, inv,
     /* 0x54 - 0x57*/ inv, inv, inv, inv,
     /* 0x58 - 0x5b*/ inv, inv, inv, inv,
@@ -183,18 +197,21 @@ instr_func opcode_2_byte_entry[256] = {
     /* 0x74 - 0x77*/ inv, inv, inv, inv,
     /* 0x78 - 0x7b*/ inv, inv, inv, inv,
     /* 0x7c - 0x7f*/ inv, inv, inv, inv,
-    /* 0x80 - 0x83*/ inv, inv, inv, inv,
-    /* 0x84 - 0x87*/ inv, inv, inv, inv,
-    /* 0x88 - 0x8b*/ inv, inv, inv, inv,
-    /* 0x8c - 0x8f*/ inv, inv, inv, inv,
-    /* 0x90 - 0x93*/ inv, inv, inv, inv,
-    /* 0x94 - 0x97*/ inv, inv, inv, inv,
-    /* 0x98 - 0x9b*/ inv, inv, inv, inv,
-    /* 0x9c - 0x9f*/ inv, inv, inv, inv,
+    // [PA-2-1] JCC near 补全 (0F 80~8F)
+    /* 0x80 - 0x83*/ jo_near,   jno_near,  jb_near,   jae_near,
+    /* 0x84 - 0x87*/ je_near,   jne_near,  jna_near,  ja_near,
+    /* 0x88 - 0x8b*/ js_near,   jns_near,  jp_near,   jnp_near,
+    /* 0x8c - 0x8f*/ jl_near,   jge_near,  jle_near,  jg_near,
+    // [PA-2-1] SETcc 补全 (0F 90~9F)
+    /* 0x90 - 0x93*/ seto_b,  setno_b, setc_b,  setae_b,
+    /* 0x94 - 0x97*/ sete_b,  setne_b, setbe_b, seta_b,
+    /* 0x98 - 0x9b*/ sets_b,  setns_b, setp_b,  setnp_b,
+    /* 0x9c - 0x9f*/ setl_b,  setge_b, setle_b, setg_b,
     /* 0xa0 - 0xa3*/ inv, inv, inv, bt_r2rm_v,
     /* 0xa4 - 0xa7*/ inv, inv, inv, inv,
     /* 0xa8 - 0xab*/ inv, inv, inv, inv,
-    /* 0xac - 0xaf*/ inv, inv, inv, inv,
+    // [PA-2-1] 0F AF = IMUL Gv,Ev
+    /* 0xac - 0xaf*/ inv, inv, inv, imul_rm2r_v,
     /* 0xb0 - 0xb3*/ inv, inv, inv, inv,
     /* 0xb4 - 0xb7*/ inv, inv, mov_zrm82r_v, mov_zrm162r_l,
     /* 0xb8 - 0xbb*/ inv, inv, inv, inv,

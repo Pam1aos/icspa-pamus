@@ -11,10 +11,7 @@ serial_idle(void)
 	return (in_byte(SERIAL_PORT + 5) & 0x20) != 0;
 }
 
-void serial_printc(char ch)
-{
-	while (!serial_idle())
-		; // wait untile serial is idle
-	// print 'ch' via out instruction here
-	HIT_BAD_TRAP;
+void serial_printc(char ch) {
+    // 调用内联汇编封装好的 out 指令，把 1 字节的 ch 发送到 0x3F8 端口
+    out_byte(SERIAL_PORT, ch);
 }
